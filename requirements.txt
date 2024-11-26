@@ -1,0 +1,12 @@
+opencv-contrib-python>=4.2.0.32
+numpy>=1.21.2
+tensorflow
+imutils>=0.5.4
+scikit-image>=0.18.1
+scikit-learn>=0.24.1
+Flask==2.0.3
+flask-cors==3.0.10
+cloudinary
+sqlalchemy
+Pillow
+alembic
