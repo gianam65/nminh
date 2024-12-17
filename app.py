@@ -80,7 +80,7 @@ def predict():
     image_path = './uploaded_image.jpg'
     file.save(image_path)
 
-    image_url = save_image_to_external_service('./uploaded_image.jpg')
+    image_url = save_image_to_external_service(image_path)
 
     _, license_plate = predict_license_plate(image_path)
 
@@ -88,30 +88,24 @@ def predict():
     existing_record = session.query(LicensePlateRecord).filter_by(license_plate=license_plate).first()
 
     if existing_record:
-        if existing_record.check_in_time and not existing_record.check_out_time:
-            # Cập nhật check_out_time nếu chưa có
-            existing_record.check_out_time = datetime.now()
-            session.commit()
-            return jsonify({
-                'message': 'Đã cập nhật check_out_time',
-                'license_plate': license_plate,
-                'check_out_time': existing_record.check_out_time
-            }), 200
-        elif existing_record.check_in_time and existing_record.check_out_time:
-            # Di chuyển bản ghi sang bảng ArchivedLicensePlateRecord
+        if existing_record.check_in_time:
+            # Cập nhật check_out_time và chuyển bản ghi sang bảng ArchivedLicensePlateRecord
             archived_record = ArchivedLicensePlateRecord(
                 license_plate=existing_record.license_plate,
                 image_url=existing_record.image_url,
                 status=existing_record.status,
                 check_in_time=existing_record.check_in_time,
-                check_out_time=existing_record.check_out_time
+                check_out_time=datetime.now()
             )
             session.add(archived_record)
             session.delete(existing_record)
             session.commit()
+
             return jsonify({
-                'message': 'Bản ghi đã được chuyển sang bảng lưu trữ',
-                'license_plate': license_plate
+                'message': 'Bản ghi đã được chuyển sang bảng lưu trữ và cập nhật check_out_time',
+                'license_plate': license_plate,
+                'check_out_time': archived_record.check_out_time,
+                'image': image_url,
             }), 200
     else:
         # Thêm bản ghi mới nếu không tồn tại
@@ -125,7 +119,11 @@ def predict():
         session.add(new_record)
         session.commit()
 
-    return jsonify({'image': image_url, 'license_plate': license_plate}), 200
+        return jsonify({
+            'message': 'Bản ghi mới đã được thêm vào',
+            'image': image_url,
+            'license_plate': license_plate
+        }), 200
 
 
 @app.route('/records', methods=['GET'])
