@@ -8,7 +8,7 @@ from io import BytesIO
 from src.lp_recognition import E2E 
 import cloudinary
 from cloudinary.uploader import upload
-from entity import LicensePlateRecord, session
+from entity import LicensePlateRecord, ArchivedLicensePlateRecord, session
 import time  
 from src.data_utils import data_mapper
 from datetime import datetime
@@ -77,27 +77,56 @@ def predict():
         return jsonify({'error': 'Không tìm thấy ảnh được tải lên'}), 400
 
     file = request.files['image']
-    image_path = './uploaded_image.jpg'  
+    image_path = './uploaded_image.jpg'
     file.save(image_path)
 
     image_url = save_image_to_external_service('./uploaded_image.jpg')
 
     _, license_plate = predict_license_plate(image_path)
 
+    # Tìm bản ghi hiện tại trong bảng LicensePlateRecord
     existing_record = session.query(LicensePlateRecord).filter_by(license_plate=license_plate).first()
 
-    if not existing_record:
+    if existing_record:
+        if existing_record.check_in_time and not existing_record.check_out_time:
+            # Cập nhật check_out_time nếu chưa có
+            existing_record.check_out_time = datetime.now()
+            session.commit()
+            return jsonify({
+                'message': 'Đã cập nhật check_out_time',
+                'license_plate': license_plate,
+                'check_out_time': existing_record.check_out_time
+            }), 200
+        elif existing_record.check_in_time and existing_record.check_out_time:
+            # Di chuyển bản ghi sang bảng ArchivedLicensePlateRecord
+            archived_record = ArchivedLicensePlateRecord(
+                license_plate=existing_record.license_plate,
+                image_url=existing_record.image_url,
+                status=existing_record.status,
+                check_in_time=existing_record.check_in_time,
+                check_out_time=existing_record.check_out_time
+            )
+            session.add(archived_record)
+            session.delete(existing_record)
+            session.commit()
+            return jsonify({
+                'message': 'Bản ghi đã được chuyển sang bảng lưu trữ',
+                'license_plate': license_plate
+            }), 200
+    else:
+        # Thêm bản ghi mới nếu không tồn tại
         new_record = LicensePlateRecord(
             license_plate=license_plate,
             image_url=image_url,
-            status='new',  
-            check_in_time=datetime.now(),  
-            check_out_time=None  
+            status='new',
+            check_in_time=datetime.now(),
+            check_out_time=None
         )
         session.add(new_record)
         session.commit()
 
     return jsonify({'image': image_url, 'license_plate': license_plate}), 200
+
 
 @app.route('/records', methods=['GET'])
 def get_records():
@@ -151,6 +180,12 @@ def delete_record(id):
     else:
         return jsonify({'error': 'Không tìm thấy dữ liệu'}), 404
 
+
+@app.route('/archived_records', methods=['GET'])
+def get_archived_records():
+    archived_records = session.query(ArchivedLicensePlateRecord).all()
+
+    return jsonify([record.to_dict() for record in archived_records]), 200
 
 
 if __name__ == '__main__':
